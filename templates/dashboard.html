@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Sistema de Placas{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- Columna Principal -->
+        <div class="col-lg-8">
+            <!-- Tarjeta de Captura de Placa -->
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h4><i class="fas fa-camera"></i> Cámara en Vivo</h4>
+                </div>
+                <div class="card-body text-center">
+                    <video id="video-feed" autoplay playsinline class="img-fluid rounded shadow-sm mb-3" style="max-height: 480px; border: 1px solid #dee2e6;"></video>
+                    <canvas id="canvas" style="display: none;"></canvas>
+                    <button id="capture-btn" class="btn btn-danger w-100 fs-5">
+                        <i class="fas fa-camera-retro"></i> Capturar y Analizar Placa
+                    </button>
+                    <div id="result-container" class="mt-4 text-start"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Columna Secundaria -->
+        <div class="col-lg-4">
+            <!-- Tarjeta de Último Acceso -->
+            <div class="card shadow-sm">
+                <div class="card-header bg-info text-white">
+                    <h5><i class="fas fa-door-open"></i> Último Acceso Registrado</h5>
+                </div>
+                <div class="card-body" id="last-access-container">
+                    <!-- Contenido dinámico -->
+                </div>
+            </div>
+
+            <!-- Tarjeta de Estadísticas del Día -->
+            <div class="card shadow-sm mt-4">
+                <div class="card-header bg-secondary text-white">
+                    <h5><i class="fas fa-chart-line"></i> Estadísticas del Día</h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex justify-content-around text-center">
+                        <div>
+                            <h3 id="authorized-count" class="text-success">0</h3>
+                            <p>Autorizados</p>
+                        </div>
+                        <div>
+                            <h3 id="unauthorized-count" class="text-danger">0</h3>
+                            <p>No Autorizados</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const video = document.getElementById('video-feed');
+    const captureBtn = document.getElementById('capture-btn');
+    const resultContainer = document.getElementById('result-container');
+
+    // Acceder a la cámara del usuario
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(function(stream) {
+                video.srcObject = stream;
+                video.play();
+            })
+            .catch(function(error) {
+                console.error("Error al acceder a la cámara: ", error);
+                alert('No se pudo acceder a la cámara. Asegúrese de que no esté siendo utilizada por otra aplicación y que haya concedido los permisos necesarios.');
+            });
+    } else {
+        alert('Tu navegador no soporta el acceso a la cámara. Por favor, utiliza un navegador moderno como Chrome o Firefox.');
+    }
+
+    captureBtn.addEventListener('click', function() {
+        const canvas = document.getElementById('canvas');
+        const context = canvas.getContext('2d');
+
+        // Ajustar el tamaño del canvas al del video
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        // Dibujar el frame actual del video en el canvas
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Convertir el canvas a una imagen en formato base64
+        const imageDataUrl = canvas.toDataURL('image/jpeg');
+
+        // Mostrar un estado de carga
+        resultContainer.innerHTML = `
+            <div class="d-flex align-items-center justify-content-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Analizando...</span>
+                </div>
+                <strong class="ms-3">Analizando placa, por favor espere...</strong>
+            </div>
+        `;
+
+        // Enviar la imagen al servidor
+        fetch('/api/capture_frame', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ image: imageDataUrl })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            let alertClass = 'alert-success';
+            let icon = '<i class="fas fa-check-circle"></i>';
+            let title = 'Acceso Autorizado';
+
+            if (!data.authorized) {
+                alertClass = 'alert-danger';
+                icon = '<i class="fas fa-times-circle"></i>';
+                title = 'Acceso Denegado';
+            }
+            
+            if (!data.success) {
+                 alertClass = 'alert-warning';
+                 icon = '<i class="fas fa-exclamation-triangle"></i>';
+                 title = 'Advertencia';
+            }
+
+            let userDetails = '';
+            if (data.user) {
+                userDetails = `
+                    <p class="mb-1"><strong>Usuario:</strong> ${data.user.name}</p>
+                    <p class="mb-0"><strong>Ocupación:</strong> ${data.user.occupation}</p>
+                `;
+            }
+
+            resultContainer.innerHTML = `
+                <div class="alert ${alertClass} shadow-sm">
+                    <h4 class="alert-heading">${icon} ${title}</h4>
+                    <p>${data.message}</p>
+                    <hr>
+                    <p class="mb-1"><strong>Placa Detectada:</strong> ${data.plate_number || 'N/A'}</p>
+                    <p class="mb-1"><strong>Confianza:</strong> ${data.confidence ? (data.confidence * 100).toFixed(2) + '%' : 'N/A'}</p>
+                    ${userDetails}
+                </div>
+            `;
+        })
+        .catch(error => {
+            resultContainer.innerHTML = `
+                <div class="alert alert-danger">
+                    <h4 class="alert-heading"><i class="fas fa-bomb"></i> Error</h4>
+                    <p>Ocurrió un error al procesar la solicitud: ${error.message}</p>
+                </div>
+            `;
+        });
+    });
+
+    // Aquí puedes agregar la lógica para actualizar las estadísticas y el último acceso si es necesario
+});
+</script>
+{% endblock %}

@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+
+{% block title %}Gestión de Usuarios{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <h4><i class="fas fa-users-cog"></i> Gestión de Usuarios</h4>
+            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#userModal" onclick="prepareNewUserForm()">
+                <i class="fas fa-plus-circle"></i> Añadir Nuevo Usuario
+            </button>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>ID</th>
+                            <th>Nombre Completo</th>
+                            <th>Ocupación</th>
+                            <th>Placa Asignada</th>
+                            <th>Rol</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="user-table-body">
+                        <!-- Los usuarios se cargarán aquí dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para Añadir/Editar Usuario -->
+<div class="modal fade" id="userModal" tabindex="-1" aria-labelledby="userModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="userModalLabel">Añadir Usuario</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="userForm">
+                    <input type="hidden" id="userId" name="id">
+                    <div class="mb-3">
+                        <label for="fullName" class="form-label">Nombre Completo</label>
+                        <input type="text" class="form-control" id="fullName" name="full_name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="occupation" class="form-label">Ocupación</label>
+                        <select class="form-select" id="occupation" name="occupation" required>
+                            <option value="docente">Docente</option>
+                            <option value="administrativo">Administrativo</option>
+                            <option value="visitante">Visitante</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="plateNumber" class="form-label">Placa del Vehículo (Opcional)</label>
+                        <input type="text" class="form-control" id="plateNumber" name="plate_number" placeholder="ABC-123">
+                    </div>
+                    <div class="mb-3">
+                        <label for="role" class="form-label">Rol del Sistema</label>
+                        <select class="form-select" id="role" name="role" required>
+                            <option value="user">Usuario</option>
+                            <option value="security">Seguridad</option>
+                            <option value="admin">Administrador</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Username (Opcional)</label>
+                        <input type="text" class="form-control" id="username" name="username">
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Contraseña (Dejar en blanco para no cambiar)</label>
+                        <input type="password" class="form-control" id="password" name="password">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="saveUser()">Guardar Cambios</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        loadUsers();
+    });
+
+    async function loadUsers() {
+        const response = await fetch('/api/users');
+        const users = await response.json();
+        const tableBody = document.getElementById('user-table-body');
+        tableBody.innerHTML = '';
+
+        users.forEach(user => {
+            const plate = user.plate_number ? `<span class="badge bg-secondary">${user.plate_number}</span>` : '<em class="text-muted">N/A</em>';
+            const row = `
+                <tr>
+                    <td>${user.id}</td>
+                    <td>${user.full_name}</td>
+                    <td>${user.occupation}</td>
+                    <td>${plate}</td>
+                    <td><span class="badge bg-info">${user.role}</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-warning" onclick="prepareEditForm(${user.id})">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteUser(${user.id})">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+            tableBody.innerHTML += row;
+        });
+    }
+
+    function prepareNewUserForm() {
+        document.getElementById('userForm').reset();
+        document.getElementById('userId').value = '';
+        document.getElementById('userModalLabel').textContent = 'Añadir Nuevo Usuario';
+    }
+
+    async function prepareEditForm(userId) {
+        const response = await fetch(`/api/users/${userId}`);
+        const user = await response.json();
+        
+        document.getElementById('userId').value = user.id;
+        document.getElementById('fullName').value = user.full_name;
+        document.getElementById('occupation').value = user.occupation;
+        document.getElementById('plateNumber').value = user.plate_number || '';
+        document.getElementById('role').value = user.role;
+        document.getElementById('username').value = user.username || '';
+        document.getElementById('password').value = ''; // Siempre vacío por seguridad
+        document.getElementById('userModalLabel').textContent = 'Editar Usuario';
+
+        new bootstrap.Modal(document.getElementById('userModal')).show();
+    }
+
+    async function saveUser() {
+        const userId = document.getElementById('userId').value;
+        const url = userId ? `/api/users/${userId}` : '/api/users';
+        const method = userId ? 'PUT' : 'POST';
+
+        const formData = new FormData(document.getElementById('userForm'));
+        const data = Object.fromEntries(formData.entries());
+
+        if (!data.password) {
+            delete data.password;
+        }
+        // Normalizar placa a mayúsculas
+        if (data.plate_number) {
+            data.plate_number = data.plate_number.trim().toUpperCase();
+        }
+
+        const response = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+            bootstrap.Modal.getInstance(document.getElementById('userModal')).hide();
+            loadUsers();
+        } else {
+            const error = await response.json();
+            alert('Error al guardar usuario: ' + (error.message || error.error));
+        }
+    }
+
+    async function deleteUser(userId) {
+        if (!confirm('¿Estás seguro de que quieres eliminar este usuario?')) {
+            return;
+        }
+
+        const response = await fetch(`/api/users/${userId}`, {
+            method: 'DELETE'
+        });
+
+        if (response.ok) {
+            loadUsers();
+        } else {
+            const error = await response.json();
+            alert('Error al eliminar usuario: ' + (error.message || error.error));
+        }
+    }
+</script>
+{% endblock %}

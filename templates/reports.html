@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Generar Reportes - Sistema de Placas{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="card shadow-sm">
+        <div class="card-header bg-success text-white">
+            <h4><i class="fas fa-file-excel"></i> Generador de Reportes de Acceso</h4>
+        </div>
+        <div class="card-body">
+            <p class="card-text">Selecciona un rango de fechas para generar un reporte en formato Excel con todos los registros de acceso.</p>
+            
+            <form id="reportForm">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-5">
+                        <label for="fecha_inicio" class="form-label">Fecha de Inicio</label>
+                        <input type="date" class="form-control" id="fecha_inicio" required>
+                    </div>
+                    <div class="col-md-5">
+                        <label for="fecha_fin" class="form-label">Fecha de Fin</label>
+                        <input type="date" class="form-control" id="fecha_fin" required>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-success w-100">
+                            <i class="fas fa-download"></i> Generar
+                        </button>
+                    </div>
+                </div>
+            </form>
+            
+            <div id="report-status" class="mt-4"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const reportForm = document.getElementById('reportForm');
+    const reportStatus = document.getElementById('report-status');
+
+    reportForm.addEventListener('submit', function(event) {
+        event.preventDefault();
+
+        const fechaInicio = document.getElementById('fecha_inicio').value;
+        const fechaFin = document.getElementById('fecha_fin').value;
+
+        if (!fechaInicio || !fechaFin) {
+            reportStatus.innerHTML = '<div class="alert alert-warning">Por favor, selecciona ambas fechas.</div>';
+            return;
+        }
+
+        reportStatus.innerHTML = `
+            <div class="d-flex align-items-center">
+                <div class="spinner-border text-success" role="status">
+                    <span class="visually-hidden">Generando...</span>
+                </div>
+                <strong class="ms-3">Generando reporte, por favor espere...</strong>
+            </div>
+        `;
+
+        fetch('/api/generar_reporte', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                fecha_inicio: fechaInicio,
+                fecha_fin: fechaFin
+            })
+        })
+        .then(response => {
+            if (response.ok) {
+                // Extraer el nombre del archivo de los headers
+                const disposition = response.headers.get('Content-Disposition');
+                let filename = 'reporte.xlsx';
+                if (disposition && disposition.indexOf('attachment') !== -1) {
+                    const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+                    const matches = filenameRegex.exec(disposition);
+                    if (matches != null && matches[1]) {
+                        filename = matches[1].replace(/['"]/g, '');
+                    }
+                }
+                
+                // Descargar el archivo
+                return response.blob().then(blob => ({ blob, filename }));
+            } else {
+                // Si hay un error, leer el JSON para mostrar el mensaje
+                return response.json().then(err => { throw new Error(err.msg || 'Error desconocido'); });
+            }
+        })
+        .then(({ blob, filename }) => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+            
+            reportStatus.innerHTML = '<div class="alert alert-success">Reporte generado y descargado con éxito.</div>';
+        })
+        .catch(error => {
+            reportStatus.innerHTML = `<div class="alert alert-danger">Error al generar el reporte: ${error.message}</div>`;
+        });
+    });
+});
+</script>
+{% endblock %}

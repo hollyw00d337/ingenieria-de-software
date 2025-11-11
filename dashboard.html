@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row g-4">
+        <!-- Columna de Captura y Resultado -->
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                    <h4><i class="fas fa-camera"></i> Captura de Placa</h4>
+                </div>
+                <div class="card-body text-center">
+                    <div class="bg-secondary mb-3" style="width:100%; min-height: 400px; display: flex; align-items: center; justify-content: center;">
+                        <p class="text-white">Vista de Cámara (Simulada)</p>
+                    </div>
+                    <input type="file" id="imageUpload" class="form-control mb-3" accept="image/*">
+                    <button id="processImage" class="btn btn-primary"><i class="fas fa-cogs"></i> Procesar Imagen</button>
+                    <button class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#manualPlateModal">
+                        <i class="fas fa-keyboard"></i> Registro Manual
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Columna de Resultados y Estadísticas -->
+        <div class="col-lg-4">
+            <!-- Card de Resultado -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-dark text-white">
+                    <h4><i class="fas fa-info-circle"></i> Resultado del Acceso</h4>
+                </div>
+                <div id="result-container" class="card-body" style="min-height: 200px;">
+                    <p class="text-muted">Esperando análisis...</p>
+                </div>
+            </div>
+
+            <!-- Card de Último Acceso -->
+            <div class="card shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <h4><i class="fas fa-history"></i> Último Acceso Registrado</h4>
+                </div>
+                <div id="last-access-container" class="card-body" style="min-height: 150px;">
+                     <p class="text-muted">Cargando...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para Registro Manual -->
+<div class="modal fade" id="manualPlateModal" tabindex="-1" aria-labelledby="manualPlateModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="manualPlateModalLabel">Registro Manual de Placa</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="manualPlateForm">
+                    <div class="mb-3">
+                        <label for="manualPlateInput" class="form-label">Número de Placa</label>
+                        <input type="text" class="form-control" id="manualPlateInput" placeholder="ABC-123" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="submitManualPlate()">Registrar Placa</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Cargar último acceso al iniciar
+        loadLastAccess();
+
+        // Listener para el botón de procesar imagen
+        document.getElementById('processImage').addEventListener('click', processUploadedImage);
+    });
+
+    // --- Lógica para Registro Manual ---
+    async function submitManualPlate() {
+        const plateInput = document.getElementById('manualPlateInput');
+        const plateNumber = plateInput.value.trim().toUpperCase();
+
+        if (!plateNumber) {
+            alert('Por favor, introduce un número de placa.');
+            return;
+        }
+
+        const response = await fetch('/api/manual_entry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ plate_number: plateNumber })
+        });
+
+        const result = await response.json();
+        displayResult(result);
+        
+        // Cerrar modal y actualizar último acceso
+        bootstrap.Modal.getInstance(document.getElementById('manualPlateModal')).hide();
+        plateInput.value = '';
+        loadLastAccess();
+    }
+
+    // --- Lógica para Subir y Procesar Imagen ---
+    async function processUploadedImage() {
+        const imageUpload = document.getElementById('imageUpload');
+        if (imageUpload.files.length === 0) {
+            alert('Por favor, selecciona una imagen primero.');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('image', imageUpload.files[0]);
+
+        displayResult({ message: 'Procesando imagen...' }); // Mensaje temporal
+
+        const response = await fetch('/api/capture_plate', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+        displayResult(result);
+        loadLastAccess();
+    }
+
+    // --- Funciones de UI ---
+    function displayResult(result) {
+        const resultContainer = document.getElementById('result-container');
+        let content = '';
+
+        if (result.error) {
+            content = `<div class="alert alert-danger">${result.error}</div>`;
+        } else if (result.authorized !== undefined) {
+            const statusClass = result.authorized ? 'alert-success' : 'alert-warning';
+            const statusText = result.authorized ? 'ACCESO AUTORIZADO' : 'ACCESO NO AUTORIZADO';
+            
+            content = `
+                <div class="alert ${statusClass}">
+                    <h4 class="alert-heading">${statusText}</h4>
+                    <p><strong>Placa:</strong> ${result.plate_number}</p>
+                    <p><strong>Confianza:</strong> ${(result.confidence * 100).toFixed(2)}%</p>
+                    <hr>
+                    <p class="mb-0">${result.message}</p>
+                </div>
+            `;
+            if (result.user) {
+                content += `
+                    <h5>Datos del Usuario:</h5>
+                    <p><strong>Nombre:</strong> ${result.user.name}</p>
+                    <p><strong>Ocupación:</strong> ${result.user.occupation}</p>
+                `;
+            }
+        } else {
+             content = `<div class="alert alert-info">${result.message}</div>`;
+        }
+        resultContainer.innerHTML = content;
+    }
+
+    async function loadLastAccess() {
+        const lastAccessContainer = document.getElementById('last-access-container');
+        try {
+            const response = await fetch('/api/access_logs?page=1&per_page=1');
+            const data = await response.json();
+            if (data.logs && data.logs.length > 0) {
+                const log = data.logs[0];
+                const statusBadge = log.authorized ? '<span class="badge bg-success">Autorizado</span>' : '<span class="badge bg-danger">No Autorizado</span>';
+                lastAccessContainer.innerHTML = `
+                    <p><strong>Placa:</strong> ${log.plate_number}</p>
+                    <p><strong>Usuario:</strong> ${log.user_name || 'N/A'}</p>
+                    <p><strong>Fecha:</strong> ${new Date(log.timestamp).toLocaleString()}</p>
+                    <p><strong>Estado:</strong> ${statusBadge}</p>
+                `;
+            } else {
+                lastAccessContainer.innerHTML = '<p class="text-muted">No hay registros de acceso todavía.</p>';
+            }
+        } catch (error) {
+            lastAccessContainer.innerHTML = '<p class="text-danger">Error al cargar el último acceso.</p>';
+        }
+    }
+</script>
+{% endblock %}
